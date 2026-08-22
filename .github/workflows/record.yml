@@ -1,0 +1,28 @@
+name: Record 1-Minute TV Stream Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture-stream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg and Python Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install requests
+
+      - name: Run Recording Script
+        run: python record.py
+
+      - name: Upload Video as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test-Recording
+          path: test_recording.mp4
+          retention-days: 5
+          
