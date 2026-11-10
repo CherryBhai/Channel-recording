@@ -1,0 +1,55 @@
+name: Generate 3D City Model (OSM2World)
+
+# This allows you to run the action manually from the GitHub Actions tab
+on:
+  workflow_dispatch:
+    inputs:
+      bbox:
+        description: 'Bounding Box (min_lon,min_lat,max_lon,max_lat)'
+        required: true
+        default: '78.5340,17.3750,78.5440,17.3850'
+      filename:
+        description: 'Output filename (without extension)'
+        required: true
+        default: 'hyderabad_model'
+
+jobs:
+  build_3d_model:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Setup Java 17 (Required for OSM2World)
+      - name: Set up Java 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 2. Download and Extract OSM2World
+      - name: Download OSM2World
+        run: |
+          wget -q http://osm2world.org/download/releases/OSM2World-latest-bin.zip -O osm2world.zip
+          unzip -q -o osm2world.zip -d OSM2World_Tool
+          # Find the jar file path dynamically
+          JAR_PATH=$(find OSM2World_Tool -name "OSM2World.jar" | head -n 1)
+          echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
+
+      # 3. Download Raw OSM Data for the Bounding Box
+      - name: Fetch Map Data
+        run: |
+          QUERY="[out:xml][timeout:300];(node(${BBOX});way(${BBOX});relation(${BBOX}););out body;>;out skel qt;"
+          curl -s -X POST -d "$QUERY" "https://overpass-api.de/api/interpreter" -o map_data.osm
+        env:
+          BBOX: ${{ github.event.inputs.bbox }}
+
+      # 4. Run OSM2World Conversion
+      - name: Generate 3D .obj File
+        run: |
+          java -Xmx2G -jar ${{ env.JAR_PATH }} -i map_data.osm -o ${{ github.event.inputs.filename }}.obj
+
+      # 5. Upload the Output Model as an Artifact
+      - name: Upload 3D Model
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.filename }}-3D-Model
+          path: ${{ github.event.inputs.filename }}.obj
