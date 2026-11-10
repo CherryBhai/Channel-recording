@@ -30,19 +30,45 @@ jobs:
           JAR_PATH=$(find OSM2World_Tool -name "OSM2World.jar" | head -n 1)
           echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
 
-      - name: Fetch Map Data
+      - name: Fetch Map Data with Fallbacks
         run: |
           QUERY="[out:xml][timeout:300];(node(${BBOX});way(${BBOX});relation(${BBOX}););out body;>;out skel qt;"
-          curl -s -X POST -d "$QUERY" "https://overpass-api.de/api/interpreter" -o map_data.osm
+          
+          # Try Primary Server
+          HTTP_STATUS=$(curl -s -o map_data.osm -w "%{http_code}" -X POST -d "$QUERY" "https://overpass-api.de/api/interpreter")
+          
+          # Try Backup 1 if failed
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Primary blocked. Trying Backup 1..."
+            sleep 3
+            HTTP_STATUS=$(curl -s -o map_data.osm -w "%{http_code}" -X POST -d "$QUERY" "https://lz4.overpass-api.de/api/interpreter")
+          fi
+          
+          # Try Backup 2 if failed
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Backup 1 blocked. Trying Backup 2..."
+            sleep 3
+            HTTP_STATUS=$(curl -s -o map_data.osm -w "%{http_code}" -X POST -d "$QUERY" "https://overpass.kumi.systems/api/interpreter")
+          fi
+          
+          # Final validation check
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "FATAL ERROR: All servers blocked the request."
+            cat map_data.osm
+            exit 1
+          fi
+          echo "Success! Valid map data downloaded."
         env:
           BBOX: ${{ github.event.inputs.bbox }}
 
       - name: Generate 3D .obj File
         run: |
-          java -Xmx2G -jar ${{ env.JAR_PATH }} -i map_data.osm -o ${{ github.event.inputs.filename }}.obj
+          # Added the "convert" subcommand to fix the legacy parsing warning
+          java -Xmx2G -jar ${{ env.JAR_PATH }} convert -i map_data.osm -o ${{ github.event.inputs.filename }}.obj
 
       - name: Upload 3D Model
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.filename }}-3D-Model
           path: ${{ github.event.inputs.filename }}.obj
+          
